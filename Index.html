@@ -1,30 +1,31 @@
 <!DOCTYPE html>
-<html>
+<html lang="hi">
 <head>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PGN Secure Bridge</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { font-family: sans-serif; text-align: center; background: #0a0a0a; color: #00ff00; padding: 15px; }
-        .container { border: 2px solid #00ff00; padding: 20px; border-radius: 15px; background: #111; }
+        .container { border: 2px solid #00ff00; padding: 20px; border-radius: 15px; background: #111; max-width: 400px; margin: auto; }
         .id-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; }
-        .id-btn { background: #222; color: #00ff00; border: 1px solid #00ff00; padding: 10px; cursor: pointer; border-radius: 5px; }
-        .selected { background: #00ff00 !important; color: #000 !important; }
-        input { width: 85%; padding: 12px; margin: 10px 0; border: 1px solid #00ff00; background: #000; color: #00ff00; }
-        .call-btn { width: 100%; padding: 15px; background: #00ff00; color: #000; border: none; font-weight: bold; cursor: pointer; }
-        .hangup-btn { width: 100%; padding: 15px; background: #ff0000; color: #fff; border: none; font-weight: bold; cursor: pointer; display: none; margin-top: 10px; }
-        #status { margin-top: 15px; color: cyan; }
+        .id-btn { background: #222; color: #00ff00; border: 1px solid #00ff00; padding: 10px; cursor: pointer; border-radius: 5px; transition: 0.3s; }
+        .selected { background: #00ff00 !important; color: #000 !important; font-weight: bold; }
+        input { width: 90%; padding: 12px; margin: 10px 0; border: 1px solid #00ff00; background: #000; color: #00ff00; border-radius: 5px; }
+        .call-btn { width: 100%; padding: 15px; background: #00ff00; color: #000; border: none; font-weight: bold; cursor: pointer; border-radius: 5px; }
+        .hangup-btn { width: 100%; padding: 15px; background: #ff0000; color: #fff; border: none; font-weight: bold; cursor: pointer; display: none; margin-top: 10px; border-radius: 5px; }
+        #status { margin-top: 15px; color: cyan; font-weight: bold; }
     </style>
 </head>
 <body>
 
     <div class="container">
         <h2>PGN Secure Bridge</h2>
-        <div id="current-id" style="color:yellow; margin-bottom:10px;">ID चुनें</div>
+        <div id="current-id" style="color:yellow; margin-bottom:10px;">अपनी ID चुनें</div>
 
         <div class="id-grid" id="id-selector"></div>
 
-        <input type="text" id="remote-id" placeholder="सामने वाले की ID डालें">
+        <input type="text" id="remote-id" placeholder="सामने वाले की ID (e.g. pgn-user-2)">
         
         <button class="call-btn" id="call-btn" onclick="startCall()">START CALL</button>
         <button class="hangup-btn" id="hangup-btn" onclick="endCall()">HANG UP (कॉल काटें)</button>
@@ -32,14 +33,13 @@
         <div id="status">System Ready</div>
     </div>
 
-    <audio id="remote-audio" autoplay></audio>
+    <audio id="remote-audio" autoplay playsinline></audio>
 
     <script>
         let peer = null;
         let currentCall = null;
         let localStream = null;
 
-        // 10 IDs generate करना
         const grid = document.getElementById('id-selector');
         for(let i=1; i<=10; i++) {
             let btn = document.createElement('button');
@@ -51,45 +51,65 @@
 
         function initPeer(id, btn) {
             if(peer) peer.destroy();
+            
             document.querySelectorAll('.id-btn').forEach(b => b.classList.remove('selected'));
             btn.classList.add('selected');
-            document.getElementById('current-id').innerText = "आपकी ID: " + id;
             
             peer = new Peer(id);
+
+            peer.on('open', (id) => {
+                document.getElementById('current-id').innerText = "आपकी ID: " + id;
+                document.getElementById('status').innerText = "Online & Ready";
+            });
+
             peer.on('call', (call) => {
-                if (confirm("Incoming Call... Accept?")) {
-                    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+                if (confirm("Incoming Call from " + call.peer + "... Accept?")) {
+                    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+                    .then((stream) => {
                         localStream = stream;
                         call.answer(stream);
                         setupCallUI(call);
+                    }).catch(err => {
+                        alert("Microphone Access Denied!");
+                        console.error(err);
                     });
                 }
             });
+
+            peer.on('error', (err) => {
+                alert("PeerJS Error: " + err.type);
+                document.getElementById('status').innerText = "Error: " + err.type;
+            });
         }
 
-        function startCall() {
+        async function startCall() {
             const rId = document.getElementById('remote-id').value;
-            if(!rId || !peer) return alert("ID चुनें और सामने वाले की ID डालें");
+            if(!rId || !peer) return alert("पहले अपनी ID चुनें और फिर सामने वाले की ID डालें");
 
-            navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-                localStream = stream;
-                const call = peer.call(rId, stream);
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                const call = peer.call(rId, localStream);
                 setupCallUI(call);
-            });
+            } catch (err) {
+                alert("Microphone Error: " + err.message);
+            }
         }
 
         function setupCallUI(call) {
             currentCall = call;
             document.getElementById('call-btn').style.display = "none";
             document.getElementById('hangup-btn').style.display = "block";
-            document.getElementById('status').innerText = "Call Connected";
+            document.getElementById('status').innerText = "Connecting...";
 
             call.on('stream', (stream) => {
-                document.getElementById('remote-audio').srcObject = stream;
+                document.getElementById('status').innerText = "Call Connected";
+                const audio = document.getElementById('remote-audio');
+                audio.srcObject = stream;
+                audio.play();
             });
 
-            // अगर सामने वाला कॉल काटे
             call.on('close', () => endCall());
+            call.on('error', () => endCall());
         }
 
         function endCall() {
